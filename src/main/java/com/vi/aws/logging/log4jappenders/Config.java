@@ -29,6 +29,7 @@ public class Config {
     protected static final String DEFAULT_LOG_APPENDER_NAME = "CloudWatchAppender";
     protected static final String DEFAULT_AWS_LOG_GROUP_NAME = "unknown";
     protected static final int AWS_LOG_STREAM_FLUSH_PERIOD_IN_SECONDS = 5;
+    protected static final int RETENTION_DAYS = 30;
 
     // AWS metadata service URL
     protected static final String AWS_INSTANCE_METADATA_SERVICE_URL = "http://169.254.169.254/latest/meta-data/instance-id";

@@ -14,7 +14,8 @@ import org.apache.logging.log4j.core.layout.PatternLayout;
 import java.io.Serializable;
 import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.concurrent.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 import static com.vi.aws.logging.log4jappenders.Config.*;
 
@@ -46,26 +47,30 @@ public class CloudWatchAppender extends AbstractAppender {
 
     @PluginFactory
     public static CloudWatchAppender createAppender(@PluginAttribute("name") String name,
-                                                       @PluginAttribute("awsLogGroupName") String awsLogGroupName,
-                                                       @PluginAttribute("awsLogStreamName") String awsLogStreamName,
-                                                       @PluginAttribute("awsLogStreamFlushPeriodInSeconds") String awsLogStreamFlushPeriodInSeconds,
-                                                       @PluginElement("Layout") Layout<Serializable> layout) {
+                                                    @PluginAttribute("awsLogGroupName") String awsLogGroupName,
+                                                    @PluginAttribute("awsLogStreamName") String awsLogStreamName,
+                                                    @PluginAttribute("awsLogStreamFlushPeriodInSeconds") String awsLogStreamFlushPeriodInSeconds,
+                                                    @PluginAttribute("retentionDays") String retentionDays,
+                                                    @PluginElement("Layout") Layout<Serializable> layout) {
         return new CloudWatchAppender(
                 name == null ? DEFAULT_LOG_APPENDER_NAME : name,
                 awsLogGroupName == null ? DEFAULT_AWS_LOG_GROUP_NAME : awsLogGroupName,
                 awsLogStreamName,
-                awsLogStreamFlushPeriodInSeconds, layout);
+                awsLogStreamFlushPeriodInSeconds, retentionDays, layout);
     }
 
     private CloudWatchAppender(final String name,
                                final String awsLogGroupName,
                                final String awsLogStreamName,
                                final String awsLogStreamFlushPeriodInSeconds,
+                               final String retentionDays,
                                final Layout<Serializable> layout) {
         super(name, null, layout == null ? PatternLayout.createDefaultLayout() : layout, false);
 
         // figure out the flush period
         int flushPeriod = AWS_LOG_STREAM_FLUSH_PERIOD_IN_SECONDS;
+        int retention = RETENTION_DAYS;
+
         if (awsLogStreamFlushPeriodInSeconds != null) {
             try {
                 flushPeriod = Integer.parseInt(awsLogStreamFlushPeriodInSeconds);
@@ -74,6 +79,16 @@ public class CloudWatchAppender extends AbstractAppender {
             }
         } else {
             debug("No awsLogStreamFlushPeriodInSeconds specified, defaulted to " + AWS_LOG_STREAM_FLUSH_PERIOD_IN_SECONDS + "s");
+        }
+
+        if(retentionDays != null) {
+            try {
+                retention = Integer.parseInt(retentionDays);
+            } catch (NumberFormatException e) {
+                debug("Bad retention (" + retentionDays + "), defaulting to " + RETENTION_DAYS);
+            }
+        } else {
+            debug("No retention specified. Defaulting to " + RETENTION_DAYS + " days.");
         }
         flushPeriodMillis = flushPeriod * 1000;
 
@@ -95,7 +110,7 @@ public class CloudWatchAppender extends AbstractAppender {
             String finalLogStreamName;
             do {
                 finalLogStreamName = logStreamNamePrefix + " " + getTimeNow();
-                this.sequenceTokenCache = createLogGroupAndLogStreamIfNeeded(logGroupName, finalLogStreamName);
+                this.sequenceTokenCache = createLogGroupAndLogStreamIfNeeded(logGroupName, finalLogStreamName, retention);
             } while (this.sequenceTokenCache != null);
             logStreamName = finalLogStreamName;
 
@@ -200,7 +215,7 @@ public class CloudWatchAppender extends AbstractAppender {
      * @param logStreamName the name of the stream
      * @return sequence token for the created stream
      */
-    private String createLogGroupAndLogStreamIfNeeded(String logGroupName, String logStreamName) {
+    private String createLogGroupAndLogStreamIfNeeded(String logGroupName, String logStreamName, int retention) {
         final DescribeLogGroupsResult describeLogGroupsResult = awsLogsClient.describeLogGroups(new DescribeLogGroupsRequest().withLogGroupNamePrefix(logGroupName));
         boolean createLogGroup = true;
         if (describeLogGroupsResult != null && describeLogGroupsResult.getLogGroups() != null && !describeLogGroupsResult.getLogGroups().isEmpty()) {
@@ -216,6 +231,8 @@ public class CloudWatchAppender extends AbstractAppender {
             final CreateLogGroupRequest createLogGroupRequest = new CreateLogGroupRequest(logGroupName);
             awsLogsClient.createLogGroup(createLogGroupRequest);
         }
+        awsLogsClient.putRetentionPolicy(new PutRetentionPolicyRequest(logGroupName, retention));
+
         String logSequenceToken = null;
         boolean createLogStream = true;
         final DescribeLogStreamsRequest describeLogStreamsRequest = new DescribeLogStreamsRequest(logGroupName).withLogStreamNamePrefix(logStreamName);
