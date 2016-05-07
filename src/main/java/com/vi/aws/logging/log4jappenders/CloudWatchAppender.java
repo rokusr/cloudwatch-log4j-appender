@@ -1,5 +1,7 @@
 package com.vi.aws.logging.log4jappenders;
 
+import com.amazonaws.regions.Region;
+import com.amazonaws.regions.Regions;
 import com.amazonaws.services.logs.AWSLogsClient;
 import com.amazonaws.services.logs.model.*;
 import org.apache.logging.log4j.core.Layout;
@@ -95,7 +97,9 @@ public class CloudWatchAppender extends AbstractAppender {
         try {
 
             awsLogsClient = new AWSLogsClient(); // this should pull the credentials automatically from the environment
-
+            Region currentRegion = Regions.getCurrentRegion();
+            if(currentRegion != null)
+                awsLogsClient.setRegion(currentRegion);
             // set the group name
             this.logGroupName = awsLogGroupName;
 
@@ -231,7 +235,12 @@ public class CloudWatchAppender extends AbstractAppender {
             final CreateLogGroupRequest createLogGroupRequest = new CreateLogGroupRequest(logGroupName);
             awsLogsClient.createLogGroup(createLogGroupRequest);
         }
-        awsLogsClient.putRetentionPolicy(new PutRetentionPolicyRequest(logGroupName, retention));
+
+        try {
+            awsLogsClient.putRetentionPolicy(new PutRetentionPolicyRequest(logGroupName, retention));
+        } catch (Exception e) {
+            debug("Couldn't set the retention policy. This will be retried next time an instance of this service starts");
+        }
 
         String logSequenceToken = null;
         boolean createLogStream = true;
